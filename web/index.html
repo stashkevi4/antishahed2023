@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Real-time Map</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.4.1/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.4.1/mapbox-gl.css" rel="stylesheet" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <script>
+        var baseCoordinates = [29.444754, 50.900668];
+        let globalStep = 0;
+        let gridScaleX = 150;
+        let gridScaleY = 70;
+        function convertToCoordinates(point) {
+            new_longitude = baseCoordinates[0] + (point[0] / 6371) * (180 / Math.PI) / (Math.cos(baseCoordinates[1] * Math.PI/180));
+            new_latitude = baseCoordinates[1]  + (point[1] / 6371) * (180 / Math.PI);
+
+            //mapbox has lat long inverted
+            return [new_longitude, new_latitude];
+        }
+        function drawPoint(singleP) {
+
+            let converted = convertToCoordinates(singleP);
+            console.log(`Drawing coordinates: ${converted[0]}, ${converted[1]}`)
+            new mapboxgl.Marker().setLngLat(converted).addTo(map);
+        }
+
+        function drawbase() {
+            new mapboxgl.Marker().setLngLat(baseCoordinates).addTo(map);
+        }
+
+        mapboxgl.accessToken = 'pk.eyJ1IjoieWRyb3pkLWJsYWNrYmlyZCIsImEiOiJjbGphMzNtYjIwODVrM2tudDlqNmhxczg4In0.5nnfuolAuT3cptunlUwwXw'; // Replace with your Mapbox access token
+
+        // Initialize the map
+        var map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/streets-v11',
+            center: [...baseCoordinates] , // Initial map center
+            zoom: 8, // Initial map zoom level
+            language: 'uk'
+        });
+
+
+
+
+        map.on('load', () => {
+            let data = {
+                "type": "geojson",
+                "data": {
+                    "type": "FeatureCollection",
+                    "features": [ ]
+                }
+            };
+
+            for (let i = 0; i < gridScaleX; i+=0.5) {
+                    for (let j = 0; j < gridScaleY; j+=0.5) {
+                        data.data.features.push({
+                            'type': 'Feature',
+                            'geometry': {
+                                'type': 'Point',
+                                'coordinates': [...convertToCoordinates([i, j])]
+                            },
+                            'properties': {
+                                'indexX': i,
+                                'indexY': j,
+                                'active': false,
+                                'color': '#ffffff',
+                                'opacity': 1,
+                                'radius' : 0.5
+                            },
+                        });
+                    }
+                }
+
+            map.addSource('my-data', data);
+
+            map.addLayer(
+                {
+                    'id': 'sensors',
+                    'type': 'circle',
+                    'source': 'my-data',
+                    paint: {
+                        'circle-radius': ['get', 'radius'],
+                        'circle-color': ['get', 'color'], // Dynamically set the circle color based on the feature property
+                        'circle-stroke-color': 'white',
+                        'circle-stroke-width': 1,
+                        'circle-opacity': ['get', 'opacity']
+                      }
+                }
+            );
+
+            // Create a WebSocket connection
+            var socket = new WebSocket('ws://localhost:8080/ws');
+
+            // When the WebSocket connection is open
+            socket.onopen = function (event) {
+                console.log('WebSocket connection established');
+            };
+
+            // When a message is received from the WebSocket server
+            socket.onmessage = function (event) {
+                var newBeacon = JSON.parse(event.data);
+                newBeacon.point = [newBeacon.point[0] * 0.5, newBeacon.point[1] * 0.5]
+
+                // Check if the received message contains valid coordinates
+                let data = map.getSource('my-data');
+                let feature = data._data.features.find(f => f.properties.indexX === newBeacon.point[0] && f.properties.indexY === newBeacon.point[1]);
+                if (feature) {
+                    feature.properties.active = true;
+                    feature.properties.color = '#ff0000';
+                    feature.properties.opacity = newBeacon.level / 1000;
+                    feature.properties.radius = 5 * newBeacon.level / 1000;
+                }
+                data.setData(data._data);
+                // setInterval(() => {
+                //     if (feature) {
+                //         feature.properties.active = true;
+                //         feature.properties.color = '#ffffff';
+                //         feature.properties.opacity = 1;
+                //         feature.properties.radius = 0.5;
+                //     }
+                //     data.setData(data._data);
+                // }, 100000);
+            };
+            // When the WebSocket connection is closed
+            socket.onclose = function (event) {
+                console.log('WebSocket connection closed');
+            };
+        });
+
+        // setInterval(async () => {
+        //     let data = map.getSource('my-data');
+        //     let newBeacon = route[globalStep++];
+        //     let feature = data._data.features.find(f => f.properties.indexX === newBeacon.point[0] && f.properties.indexY === newBeacon.point[1]);
+        //     if (feature) {
+        //         feature.properties.active = true;
+        //         feature.properties.color = '#ff0000';
+        //         feature.properties.opacity = newBeacon.level / 1000;
+        //         feature.properties.radius = 5 * newBeacon.level / 1000;
+        //     }
+        //     data.setData(data._data);
+        //
+        // }, 1000);
+
+
+    </script>
+</body>
+</html>
